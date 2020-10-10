@@ -2,7 +2,6 @@ import numpy as np
 import random 
 import time
 import math
-import timeit
 
 from numpy import core
 from numpy.testing._private.utils import tempdir 
@@ -25,7 +24,7 @@ class AI(object):
         self.candidate_list = []
         self.mode = mode
         if mode == 'MCTS':
-            self.algorithm = MCTS()
+            self.algorithm = MCTS(time_out)
         elif mode == 'random':
             self.algorithm = RD()
 
@@ -36,7 +35,7 @@ class AI(object):
     def go(self, chessboard):
         g = Game(chessboard, self.color)
         self.candidate_list = g.getActions()
-        self.candidate_list.append(self.algorithm(g, ))
+        self.algorithm(g, output=self.candidate_list)
 
 
 
@@ -44,6 +43,12 @@ class MiniMax:
     pass
 
 class Game:
+    SIM_SIZE = 100 
+    REAL_SIZE = 10000
+    sim_buffer = np.zeros((SIM_SIZE, 8, 8))
+    sim_ptr = 0
+    real_buffer = np.zeros((REAL_SIZE, 8, 8))
+    real_ptr = 0
     def __init__(self, board: np.ndarray, player_color):
         self.board = board
         self.player_color = player_color
@@ -68,13 +73,13 @@ class Game:
             return len(Game.__get_options(-self.player_color, self.board, )) == 0
 
     def eval(self, base_player_color):
-        result = np.sum(self.board==base_player_color) - np.sum(self.board==-base_player_color) 
-        if result > 0:
-            return result / (self.board.shape[0] ** 2)
-        elif result == 0:
+        result = np.sum(self.board==base_player_color)
+        if result > 32:
+            return 1.
+        elif result == 32:
             return 0.
         else:
-            return -1.
+            return 0.
         
 
     def getValue(self, final_game, value):
@@ -88,15 +93,37 @@ class Game:
         else:
             return -value
     
-    def nextTurn(self, action):
+    def nextTurnSim(self, action, ):
+        new_board = Game.sim_buffer[Game.sim_ptr]
+        Game.sim_buffer[Game.sim_ptr] = self.board
+        Game.sim_ptr = (Game.sim_ptr + 1) % Game.SIM_SIZE
         if action is None:
-            return Game(np.copy(self.board), -self.player_color)
+            return Game(new_board, -self.player_color)
 
+        for dx, dy in self.options[action][1]:
+            Game.__reverse(action, color=self.player_color, chessboard=new_board, direct=(dx, dy))
+        
+        return Game(new_board, -self.player_color)
+    
+    def nextTurn(self, action):
+        new_board = Game.real_buffer[Game.real_ptr]
+        Game.real_buffer[Game.real_ptr] = self.board
+        Game.real_ptr = (Game.real_ptr + 1) % Game.REAL_SIZE
+        if action is None:
+            return Game(new_board, -self.player_color)
+
+        for dx, dy in self.options[action][1]:
+            Game.__reverse(action, color=self.player_color, chessboard=new_board, direct=(dx, dy))
+        
+        return Game(new_board, -self.player_color)
+        if action is None: return Game(np.copy(self.board), -self.player_color)
+        
         new_board = np.copy(self.board)
         for dx, dy in self.options[action][1]:
             Game.__reverse(action, color=self.player_color, chessboard=new_board, direct=(dx, dy))
         
         return Game(new_board, -self.player_color)
+        
 
     @staticmethod
     def __get_options(color, chessboard, ) -> dict:
@@ -235,20 +262,26 @@ class RD:
     def __init__(self) -> None:
         self.base_state = None
     
-    def __call__(self, game: Game, ):
+    def __call__(self, game: Game, output=None):
         actions = game.getActions()
         if len(actions) == 0:
             return None
+        if output is not None:
+            output.append(actions[np.random.randint(len(actions))])
         return actions[np.random.randint(len(actions))]
 
     
 class MCTS:
-    def __init__(self, ):
+    def __init__(self, time_out):
         self.base_state = None
+        self.time_out = time_out
     
-    def __call__(self, game: Game, iters=30, output=None):
+    def __call__(self, game: Game, iters=1000, output=None):
         self.base_state = State(game, )
+        start_time = time.time_ns()
+        max_t_per_iter = 0.0
         for ii in range(iters):
+            t1 = time.time_ns()
             # select the optimal leaf node
             node = self.select()
             # rollout to end of the game
@@ -257,7 +290,13 @@ class MCTS:
             self.backprop(node, val)
 
             if output is not None:
-                output.append(self.base_state.bestChild().choice_to_state)
+                action = self.base_state.bestChild().choice_to_state
+                if action is not None:
+                    output.append(self.base_state.bestChild().choice_to_state)
+            t2 = time.time_ns()
+            max_t_per_iter = max(0, t2 - t1)
+            if (self.time_out - (time.time_ns() - start_time) / 1e9) < 2 * (max_t_per_iter / 1e9):
+                return
         return self.base_state.bestChild().choice_to_state
 
     
@@ -297,11 +336,11 @@ class MCTS:
             actions = game.getActions()
             # no action to take
             if len(actions) == 0:
-                game = game.nextTurn(None)
+                game = game.nextTurnSim(None)
                 continue
 
             choice = np.random.randint(len(actions))
-            game = game.nextTurn(actions[choice])
+            game = game.nextTurnSim(actions[choice])
         
         # evaluate according to base state player color
         return game.eval(self.base_state.game.player_color), game
@@ -352,8 +391,8 @@ if __name__ == "__main__":
 
 
     __board = np.array(__board)
-    ai = AI(__board.shape[0], 1, None, mode='MCTS')
-    bi = AI(__board.shape[0], -1, None, mode='random')
+    ai = AI(__board.shape[0], 1, 5, mode='MCTS')
+    bi = AI(__board.shape[0], -1, 5, mode='random')
     game = Game(__board, 1)
     turn_of = 1
     action = None
@@ -366,11 +405,11 @@ if __name__ == "__main__":
             end = time.time_ns()
             print("decision took: {} second(s) ".format((end - start) / 1e9))
             turn_of = -turn_of
-            action = ai.candidate_list[-1]
+            action = ai.candidate_list[-1] if len(ai.candidate_list) != 0 else None
         else:
             bi.go(game.board, )
             turn_of = -turn_of
-            action = bi.candidate_list[-1]
+            action = bi.candidate_list[-1] if len(bi.candidate_list) != 0 else None
         start = time.time_ns()
         game.getActions()
         end = time.time_ns()
