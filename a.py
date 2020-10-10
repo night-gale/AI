@@ -2,6 +2,7 @@ import numpy as np
 import random 
 import time
 import math
+import timeit
 
 from numpy import core
 from numpy.testing._private.utils import tempdir 
@@ -11,171 +12,32 @@ COLOR_WHITE = 1
 COLOR_NONE = 0
 
 INF = 1e8
-random.seed(0)
 
 BOUND_ENCOUNTERED = 0
 OPPONENT_CHESS_FOUND = 1
 EMPTY_GRID_FOUND = -1
 
 class AI(object):
-    def __init__(self, chessboard_size, color, time_out):
+    def __init__(self, chessboard_size, color, time_out, mode='MCTS'):
         self.chessboard_size = chessboard_size 
         self.color = color 
         self.time_out = time_out 
         self.candidate_list = []
+        self.mode = mode
+        if mode == 'MCTS':
+            self.algorithm = MCTS()
+        elif mode == 'random':
+            self.algorithm = RD()
 
 
     # candidate_list example [(3, 3), (4, 4)]
     # the last entry of candidate_list would be chosen as the decision
     # index range [0, 7], in total 64 position
     def go(self, chessboard):
-        self.candidate_list.clear()
+        g = Game(chessboard, self.color)
+        self.candidate_list = g.getActions()
+        self.candidate_list.append(self.algorithm(g, ))
 
-        self.candidate_list = list(AI._get_options(self.color, chessboard))
-        if len(self.candidate_list) == 0:
-            return 
-    
-        #choice = np.random.randint(len(self.candidate_list))
-        #self.candidate_list.append(self.candidate_list[choice])
-
-
-    def min_max(self, depth, chessboard):
-        return AI.__max_search(depth, chessboard, self.color)
-    
-    # max search go through all possible choice and return the choices with maximum value
-    @staticmethod
-    def __max_search(depth, chessboard, color):
-        # if max depth reached or reaches end of the game
-        if AI._is_terminate(depth, chessboard):
-            return (AI._evaluate(color, chessboard), None)
-    
-        value = -INF
-        choice = None
-
-        options = AI._get_options(color, chessboard, mode='keep')
-        for opt, direct in options:
-            newBoard = np.copy(chessboard)
-            newBoard[opt] = color
-            AI._reverse(opt, color, newBoard, direct[1])
-            tv, _ = AI.__min_search(depth-1, chessboard, -color)
-            if tv > value:
-                value = tv
-                choice = opt
-
-        return (value, choice)
-
-    
-            
-
-    # min search go through all possible choices and returns the choice with minimum value
-    @staticmethod
-    def __min_search(depth, chessboard, color):
-        if AI._is_terminate(depth, chessboard):
-            return (AI._evaluate(color, chessboard), None)
-    
-        value = INF
-        choice = None
-
-        options = AI._get_options(color, chessboard, mode='keep')
-        for opt, direct in options:
-            # direct: (s, list of (x, y))
-            newBoard = np.copy(chessboard)
-            AI._reverse(opt, color, newBoard, direct[1])
-            tv, _ = AI.__max_search(depth-1, chessboard, -color)
-            if tv < value:
-                value = tv
-                choice = opt
-
-        return (value, choice)
-
-
-
-    # based on calculating stable chess aka those won't be reversed in the future
-    # TODO: further evaluation when no stable chess found
-    @staticmethod
-    def _evaluate(color, chessboard) -> float:
-        """
-        chessboard -- list
-        """
-        # number of our stable chess - opponents stable chess
-        turns = np.sum(chessboard != 0)
-        score = 0
-        chessboard_size = chessboard.shape[0]
-        
-        my_stable = 0
-        op_stable = 0
-        for ii in range(chessboard_size):
-            for jj in range(chessboard_size):
-                if chessboard[ii][jj] == COLOR_NONE:
-                    continue
-                if chessboard[ii][jj] == color:
-                    my_stable += AI.__is_stable((ii, jj), chessboard, color)
-                else:
-                    op_stable += AI.__is_stable((ii, jj), chessboard, -color)
-        return my_stable - op_stable
-    
-
-
-
-    @staticmethod
-    def _is_terminate(depth, chessboard):
-        return depth <= 0 or np.sum(chessboard != COLOR_NONE) == (chessboard.shape[0]) ** 2
-        
-
-
-    @staticmethod
-    def __is_stable(cur, chessboard, color):
-        """
-        cur -- tuple of current index \n
-        color -- the color of the chess to check \n
-        """
-        num_stable = 0
-        for ii, jj in [(1, 0), (0, 1), (1, 1), (1, -1)]:
-            pos = AI._check_direction_state(cur, ( ii,  jj), chessboard, color)
-            neg = AI._check_direction_state(cur, (-ii, -jj), chessboard, color)
-            if pos in (BOUND_ENCOUNTERED, OPPONENT_CHESS_FOUND) \
-                    and neg in (BOUND_ENCOUNTERED, OPPONENT_CHESS_FOUND):
-                num_stable += 1
-            elif (pos == EMPTY_GRID_FOUND and neg == BOUND_ENCOUNTERED) \
-                    or (pos == BOUND_ENCOUNTERED and neg == EMPTY_GRID_FOUND):
-                num_stable += 1
-        if num_stable == 4:
-            # 4 lines all stable
-            return 1
-        return 0
-
-    
-
-    @staticmethod
-    def _check_direction_state(cur, direction, chessboard, color):
-        """            
-        Check the state of the 
-        the color of the chess to check
-        """
-        dx, dy = direction;
-        x, y = cur;
-        flag = True
-        f1, f2 = None, None
-        chessboard_size = chessboard.shape[0]
-        while flag:
-            x += dx
-            y += dy 
-            f2 = (x >= 0 and x < chessboard_size) \
-                 and (y >= 0 and y < chessboard_size)
-            if not f2:
-                break;
-            f1 = chessboard[x, y] == color
-            flag = f1 and f2
-        
-        if not f2:
-            return BOUND_ENCOUNTERED 
-        elif chessboard[x][y] == -color:
-            return OPPONENT_CHESS_FOUND
-        elif chessboard[x][y] == COLOR_NONE:
-            return EMPTY_GRID_FOUND
-
-
-                            
 
 
 class MiniMax:
@@ -205,8 +67,15 @@ class Game:
         elif len(Game.__get_options(self.player_color, self.board, )) == 0:
             return len(Game.__get_options(-self.player_color, self.board, )) == 0
 
-    def eval(self, ):
-        return np.sum(self.board==self.player_color) - np.sum(self.board==-self.player_color)
+    def eval(self, base_player_color):
+        result = np.sum(self.board==base_player_color) - np.sum(self.board==-base_player_color) 
+        if result > 0:
+            return result / (self.board.shape[0] ** 2)
+        elif result == 0:
+            return 0.
+        else:
+            return -1.
+        
 
     def getValue(self, final_game, value):
         """
@@ -220,10 +89,8 @@ class Game:
             return -value
     
     def nextTurn(self, action):
-        assert self.options is not None
         if action is None:
             return Game(np.copy(self.board), -self.player_color)
-        assert action in self.options.keys()
 
         new_board = np.copy(self.board)
         for dx, dy in self.options[action][1]:
@@ -357,17 +224,30 @@ class State:
     def getRandChoice(self, ):
         if self.actions is None:
             self.getActions()
+        if len(self.actions) == 0:
+            return None
         a = self.actions[np.random.randint(len(self.actions))]
         while a in self.selected_actions:
             a = self.actions[np.random.randint(len(self.actions))]
         return a
+
+class RD:
+    def __init__(self) -> None:
+        self.base_state = None
+    
+    def __call__(self, game: Game, ):
+        actions = game.getActions()
+        if len(actions) == 0:
+            return None
+        return actions[np.random.randint(len(actions))]
+
     
 class MCTS:
     def __init__(self, ):
         self.base_state = None
     
-    def __call__(self, state : State, iters=1000):
-        self.base_state = state
+    def __call__(self, game: Game, iters=30, output=None):
+        self.base_state = State(game, )
         for ii in range(iters):
             # select the optimal leaf node
             node = self.select()
@@ -375,6 +255,10 @@ class MCTS:
             val = self.simulate(node)
             # 
             self.backprop(node, val)
+
+            if output is not None:
+                output.append(self.base_state.bestChild().choice_to_state)
+        return self.base_state.bestChild().choice_to_state
 
     
 
@@ -419,7 +303,8 @@ class MCTS:
             choice = np.random.randint(len(actions))
             game = game.nextTurn(actions[choice])
         
-        return game.eval(), game
+        # evaluate according to base state player color
+        return game.eval(self.base_state.game.player_color), game
         
 
     def backprop(self, state, value):
@@ -430,27 +315,75 @@ class MCTS:
         # update val of parent nodes
         val, final_game = value
         while state is not None:
-            state.val += state.game.getValue(final_game, val)
+            state.val += val
             state.N += 1
             state = state.parent
 
 
+
         
 if __name__ == "__main__":
-    ai = AI(8, 1, 30)
-    board = [
+    import matplotlib.pyplot as plt 
+    import matplotlib.patches as patch
+    from matplotlib.collections import PathCollection
+
+    def plot(board: np.ndarray):
+        h, w = board.shape
+        patches = []
+        colors = []
+        radius = 1. / h / 2
+        for ii in range(board.shape[0]):
+            for jj in range(board.shape[1]):
+                color = (1, 0, 0) if board[ii][jj] == 1 else (0, 0, 1) if board[ii][jj] == -1 else (1, 1, 1)
+                circle = plt.Circle((ii * radius * 2 + radius, jj * radius * 2 + radius), radius, color=color)
+                plt.gca().add_artist(circle)
+
+            
+    __board = [
         [ 0,  0,  0,  0,  0,  0,  0,  0, ],
         [ 0,  0,  0,  0,  0,  0,  0,  0, ],
         [ 0,  0,  0,  0,  0,  0,  0,  0, ],
         [ 0,  0,  0, -1,  1,  0,  0,  0, ],
-        [ 0,  0,  1,  1, -1,  0,  0,  0, ],
+        [ 0,  0,  0,  1, -1,  0,  0,  0, ],
         [ 0,  0,  0,  0,  0,  0,  0,  0, ],
         [ 0,  0,  0,  0,  0,  0,  0,  0, ],
         [ 0,  0,  0,  0,  0,  0,  0,  0, ],
     ]
-    board = np.array(board)
-    ai = MCTS()
-    game = Game(board, 1)
-    ai(State(game, ), iters=100)
-    print(ai.base_state.bestChild().choice_to_state)
-    
+
+
+    __board = np.array(__board)
+    ai = AI(__board.shape[0], 1, None, mode='MCTS')
+    bi = AI(__board.shape[0], -1, None, mode='random')
+    game = Game(__board, 1)
+    turn_of = 1
+    action = None
+
+    plt.ion()
+    while game.terminate() is not True:
+        if turn_of == 1:
+            start = time.time_ns()
+            ai.go(game.board, )
+            end = time.time_ns()
+            print("decision took: {} second(s) ".format((end - start) / 1e9))
+            turn_of = -turn_of
+            action = ai.candidate_list[-1]
+        else:
+            bi.go(game.board, )
+            turn_of = -turn_of
+            action = bi.candidate_list[-1]
+        start = time.time_ns()
+        game.getActions()
+        end = time.time_ns()
+        print("getActions took: ", (start - end) / 1e9)
+        game = game.nextTurn(action)
+        plot(game.board)
+        plt.pause(1)
+    plt.show()
+
+    result = np.sum(game.board==ai.color)
+    if result > 32:
+        print("AI wins")
+    elif result == 32:
+        print("Draw")
+    else:
+        print("AI Loses")
