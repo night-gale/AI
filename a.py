@@ -102,6 +102,7 @@ class Game:
 
         for dx, dy in self.options[action][1]:
             Game.__reverse(action, color=self.player_color, chessboard=new_board, direct=(dx, dy))
+        new_board[action] = self.player_color
         
         return Game(new_board, -self.player_color)
     
@@ -114,6 +115,7 @@ class Game:
 
         for dx, dy in self.options[action][1]:
             Game.__reverse(action, color=self.player_color, chessboard=new_board, direct=(dx, dy))
+        new_board[action] = self.player_color
         
         return Game(new_board, -self.player_color)
         if action is None: return Game(np.copy(self.board), -self.player_color)
@@ -195,6 +197,8 @@ class Game:
     @staticmethod
     def __reverse(choice, color, chessboard, direct):
         x, y = choice
+        x += direct[0]
+        y += direct[1]
         while chessboard[x, y] != color:
             chessboard[x, y] = color 
             x += direct[0]
