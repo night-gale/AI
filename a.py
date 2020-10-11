@@ -4,7 +4,7 @@ import time
 import math
 
 from numpy import core
-from numpy.testing._private.utils import tempdir 
+from numpy.testing._private.utils import tempdir
 
 COLOR_BLACK = -1
 COLOR_WHITE = 1 
@@ -15,6 +15,19 @@ INF = 1e8
 BOUND_ENCOUNTERED = 0
 OPPONENT_CHESS_FOUND = 1
 EMPTY_GRID_FOUND = -1
+
+# weights = np.array(
+#     [
+#         [6.21, 1.88, 12.4, 0.37, 0.37, 12.4, 1.88, 6.21],
+#         [1.88, -1.0, -5.45, -1.40, -1.40, -5.45, -1.00, 1.88], 
+#         [12.4, -5.45, 0.03, 0.07, 0.07, 0.03, -5.45, 12.4 ],
+#         [0.37, -1.40, 0.07, -1.32, -1.32, 0.07, -1.40, 0.37],
+#         [0.37, -1.40, 0.07, -1.32, -1.32, 0.07, -1.40, 0.37],
+#         [12.4, -5.45, 0.03, 0.07, 0.07, 0.03, -5.45, 12.4 ],
+#         [1.88, -1.0, -5.45, -1.40, -1.40, -5.45, -1.00, 1.88], 
+#         [6.21, 1.88, 12.4, 0.37, 0.37, 12.4, 1.88, 6.21],
+#     ]
+# )
 
 class AI(object):
     def __init__(self, chessboard_size, color, time_out, mode='MCTS'):
@@ -44,7 +57,7 @@ class MiniMax:
 
 class Game:
     SIM_SIZE = 100 
-    REAL_SIZE = 10000
+    REAL_SIZE = 100000
     sim_buffer = np.zeros((SIM_SIZE, 8, 8))
     sim_ptr = 0
     real_buffer = np.zeros((REAL_SIZE, 8, 8))
@@ -69,8 +82,12 @@ class Game:
         """
         if np.sum(self.board==0) == 0:
             return True
-        elif len(Game.__get_options(self.player_color, self.board, )) == 0:
-            return len(Game.__get_options(-self.player_color, self.board, )) == 0
+        else:
+            self.getActions()
+            if len(self.options) == 0:
+                return len(Game.__get_options(-self.player_color, self.board, )) == 0
+            else:
+                return False
 
     def eval(self, base_player_color):
         result = np.sum(self.board==base_player_color)
@@ -102,7 +119,7 @@ class Game:
 
         for dx, dy in self.options[action][1]:
             Game.__reverse(action, color=self.player_color, chessboard=new_board, direct=(dx, dy))
-        new_board[action] = self.player_color
+        new_board[action[0], action[1]] = self.player_color
         
         return Game(new_board, -self.player_color)
     
@@ -115,7 +132,7 @@ class Game:
 
         for dx, dy in self.options[action][1]:
             Game.__reverse(action, color=self.player_color, chessboard=new_board, direct=(dx, dy))
-        new_board[action] = self.player_color
+        new_board[action[0], action[1]] = self.player_color
         
         return Game(new_board, -self.player_color)
         if action is None: return Game(np.copy(self.board), -self.player_color)
@@ -146,7 +163,6 @@ class Game:
                         if res is not False:
                             # get the number of opponent chesses that are going to be reversed
                             if (ii, jj) in scores.keys():
-                                scores[(ii, jj)][0] += res[0]
                                 scores[(ii, jj)][1].append(res[1])
                             else:
                                 scores[(ii, jj)] = [res[0], [res[1]]]
@@ -172,10 +188,8 @@ class Game:
         dx, dy = direction
         flag = True
         f1, f2 = None, None
-        cnt = 0
         chessboard_size = chessboard.shape[0]
         while flag:
-            cnt += 1
             x += dx 
             y += dy
             f2 = (x >= 0 and x < chessboard_size) \
@@ -192,7 +206,7 @@ class Game:
             # no opponent chess lies in between
             return False
         else:
-            return (cnt - 1, (dx, dy))
+            return (None, (dx, dy))
 
     @staticmethod
     def __reverse(choice, color, chessboard, direct):
@@ -203,8 +217,6 @@ class Game:
             chessboard[x, y] = color 
             x += direct[0]
             y += direct[1]
-            if x < 0 or x >= 8 or y < 0 or y >= 8:
-                break
 
 
 class State:
@@ -238,7 +250,7 @@ class State:
         
         return self.children[best[0]]
 
-    def getUCB(self, eps=1e-5, c=1/math.sqrt(2)):
+    def getUCB(self, eps=1e-5, c=1/2):
         if self.N == 0:
             return float('inf')
         return self.val / self.N + c * math.sqrt(2*math.log(self.root.N) / self.N)
@@ -280,7 +292,7 @@ class MCTS:
         self.base_state = None
         self.time_out = time_out
     
-    def __call__(self, game: Game, iters=1000, output=None):
+    def __call__(self, game: Game, iters=3000, output=None):
         self.base_state = State(game, )
         start_time = time.time_ns()
         max_t_per_iter = 0.0
@@ -293,13 +305,15 @@ class MCTS:
             # 
             self.backprop(node, val)
 
-            if output is not None:
-                action = self.base_state.bestChild().choice_to_state
+            action = self.base_state.bestChild().choice_to_state
+            if output is not None and ii % 5 == 0:
                 if action is not None:
-                    output.append(self.base_state.bestChild().choice_to_state)
+                    output.append(action)
             t2 = time.time_ns()
             max_t_per_iter = max(0, t2 - t1)
             if (self.time_out - (time.time_ns() - start_time) / 1e9) < 2 * (max_t_per_iter / 1e9):
+                if action is not None:
+                    output.append(action)
                 return
         return self.base_state.bestChild().choice_to_state
 
@@ -328,7 +342,8 @@ class MCTS:
         """
         # when no child states expanded, randomly select one
         if (len(state.children) == 0) or (len(state.children) != len(state.actions)):
-            state.nextState(state.getRandChoice(), base_state=self.base_state)
+            action = state.getRandChoice()
+            state.nextState(action, base_state=self.base_state)
         
 
     def simulate(self, state):
@@ -343,8 +358,8 @@ class MCTS:
                 game = game.nextTurnSim(None)
                 continue
 
-            choice = np.random.randint(len(actions))
-            game = game.nextTurnSim(actions[choice])
+            choice = actions[np.random.randint(len(actions))]
+            game = game.nextTurnSim(choice)
         
         # evaluate according to base state player color
         return game.eval(self.base_state.game.player_color), game
@@ -419,9 +434,9 @@ if __name__ == "__main__":
         end = time.time_ns()
         print("getActions took: ", (start - end) / 1e9)
         game = game.nextTurn(action)
-        plot(game.board)
-        plt.pause(1)
-    plt.show()
+    #     plot(game.board)
+    #     plt.pause(1)
+    # plt.show()
 
     result = np.sum(game.board==ai.color)
     if result > 32:
