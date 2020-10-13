@@ -1,3 +1,5 @@
+from PIL.Image import BICUBIC
+from numpy.core.numeric import argwhere
 import numpy as np
 import random 
 import time
@@ -48,7 +50,7 @@ class AI(object):
     def go(self, chessboard):
         g = Game(chessboard, self.color)
         self.candidate_list = g.getActions()
-        self.algorithm(g, output=self.candidate_list)
+        return self.algorithm(g, output=self.candidate_list)
 
 
 
@@ -301,7 +303,7 @@ class MCTS:
             # select the optimal leaf node
             node = self.select()
             # rollout to end of the game
-            val = self.simulate(node)
+            val = self.bit_simulate(node)
             # 
             self.backprop(node, val)
 
@@ -314,8 +316,8 @@ class MCTS:
             if (self.time_out - (time.time_ns() - start_time) / 1e9) < 2 * (max_t_per_iter / 1e9):
                 if action is not None:
                     output.append(action)
-                return
-        return self.base_state.bestChild().choice_to_state
+                return ii
+        return ii
 
     
 
@@ -344,6 +346,13 @@ class MCTS:
         if (len(state.children) == 0) or (len(state.children) != len(state.actions)):
             action = state.getRandChoice()
             state.nextState(action, base_state=self.base_state)
+        
+    def bit_simulate(self, state):
+        val, _, _ = BitBoard.simulate(state.game.board, state.game.player_color)
+        if self.base_state.game.player_color == COLOR_BLACK:
+            return int(val), state.game
+        else:
+            return int(not val), state.game
         
 
     def simulate(self, state):
@@ -377,7 +386,192 @@ class MCTS:
             state.N += 1
             state = state.parent
 
+# idea from 
+# https://en.wikipedia.org/wiki/Bitboard
+class BitBoard:
+    @staticmethod
+    def Down(b):
+        return b << 8
+    
+    @staticmethod
+    def Up(b):
+        return b >> 8
 
+    @staticmethod
+    def Right(b):
+        return (b & 0xfefefefe_fefefefe) >> 1
+        
+    @staticmethod
+    def Left(b):
+        return (b & 0x7f7f7f7f_7f7f7f7f) << 1
+
+
+    @staticmethod
+    def getActions(bs, be, ):
+        mv = 0
+        for func in {BitBoard.Down, BitBoard.Up, BitBoard.Right, BitBoard.Left}:
+            mv |= BitBoard.__getActions(bs, be, func)
+        
+        for f1 in {BitBoard.Down, BitBoard.Up}:
+            for f2 in {BitBoard.Right, BitBoard.Left}:
+                mv |= BitBoard.__getActions_(bs, be, f1, f2)
+        
+        return mv & 0xffff_ffff_ffff_ffff
+    
+    @staticmethod
+    def argwhere(bb):
+        result = []
+        for ii in range(8):
+            for jj in range(8):
+                if bb & (1 << (ii * 8 + jj)):
+                    result.append((ii, jj))
+        return result
+
+    @staticmethod 
+    def __getActions(bs, be, func):
+        # places with no chess stone
+        blank = ~(bs | be)
+
+        cap = func(bs) & be
+        # move
+        # remove `for` loop for efficiency
+        cap |= func(cap) & be
+        cap |= func(cap) & be
+        cap |= func(cap) & be
+        cap |= func(cap) & be
+        cap |= func(cap) & be
+
+        return (func(cap) & blank)
+    
+    @staticmethod
+    def __getActions_(bs, be, f1, f2):
+        # places with no chess stone
+        blank = ~(bs | be)
+
+        cap = f1(f2(bs)) & be
+        # move
+        # remove `for` loop for efficiency
+        cap |= f1(f2(cap)) & be
+        cap |= f1(f2(cap)) & be
+        cap |= f1(f2(cap)) & be
+        cap |= f1(f2(cap)) & be
+        cap |= f1(f2(cap)) & be
+
+        return (f1(f2(cap)) & blank)
+
+
+    @staticmethod
+    def bitToBoard(bit):
+        return np.array([int((bit & 1 << x) != 0) for x in range(64)]).reshape((8, 8))
+
+    @staticmethod
+    def boardToBit(board):
+        b = board.reshape(64)
+        bbit = 0
+        wbit = 0
+        for ii in range(64):
+            bbit |= int(b[ii]==-1) << ii
+            wbit |= int(b[ii]==1) << ii
+        return {
+            -1: bbit,
+             1: wbit
+        }
+    
+    @staticmethod 
+    def nextTurn(black, white, player_color, mv):
+        """
+        returns {black, white}
+        """
+        my, ene = (black, white) if player_color == COLOR_BLACK else (white, black)
+        cap = 0
+
+        my |= mv
+        for func in {BitBoard.Down, BitBoard.Up, BitBoard.Right, BitBoard.Left}:
+            cap = func(mv) & ene
+            cap |= func(cap) & ene 
+            cap |= func(cap) & ene 
+            cap |= func(cap) & ene 
+            cap |= func(cap) & ene 
+            cap |= func(cap) & ene 
+            if (func(cap) & my) != 0:
+                my |= cap
+                ene &= ~cap
+        for f1 in {BitBoard.Down, BitBoard.Up}:
+            for f2 in {BitBoard.Right, BitBoard.Left}:
+                cap = f1(f2(mv)) & ene
+                cap |= f1(f2(mv)) & ene
+                cap |= f1(f2(mv)) & ene
+                cap |= f1(f2(mv)) & ene
+                cap |= f1(f2(mv)) & ene
+                cap |= f1(f2(mv)) & ene
+                if (f1(f2(mv)) & my) != 0:
+                    my |= cap 
+                    ene &= ~cap
+        
+        if player_color == COLOR_BLACK:
+            return my, ene, -player_color
+        else:
+            return ene, my, -player_color
+    
+    @staticmethod
+    def mvToArray(mv):
+        result = []
+        for ii in range(64):
+            tmp = 1 << ii
+            if mv & (tmp):
+                result.append(tmp)
+        
+        return result
+    
+    @staticmethod 
+    def randNextTurn(black, white, player_color, ):
+        moves = None
+        if player_color == COLOR_BLACK:
+            moves = BitBoard.getActions(black, white)
+        else:
+            moves = BitBoard.getActions(white, black)
+        if moves  == 0:
+            # no move to take
+            return (black, white, -player_color), True
+        mv = moves
+        moves = BitBoard.mvToArray(moves)
+        mv = moves[random.randint(0, len(moves)-1)]
+        return BitBoard.nextTurn(black, white, player_color, mv), False
+    
+    @staticmethod
+    def terminate(bs, be):
+        return ((bs | be) == 0xffff_ffff_ffff_ffff) \
+                or ((bs == 0) or (be == 0))
+    
+    @staticmethod
+    def winner(black):
+        bn = bin(black&0xffff_ffff_ffff_ffff).count("1")
+        return bn > 32
+
+    @staticmethod
+    def simulate(board, player_color):
+        bitboard = BitBoard.boardToBit(board)
+        black = bitboard[-1]
+        white = bitboard[1]
+        flag = False
+        tpc = player_color
+        while not BitBoard.terminate(black, white):
+            (black, white, tpc), tmp = BitBoard.randNextTurn(black, white, tpc )
+            if tmp == True:
+                if flag == True:
+                    break
+            flag = tmp
+            b = BitBoard.bitToBoard(black)
+            w = BitBoard.bitToBoard(white)
+            b = b * -1 + w * 1
+
+
+        result = BitBoard.winner(black)
+        if player_color == COLOR_BLACK:
+            return result, black, white
+        else:
+            return not result, black, white
+            
 
         
 if __name__ == "__main__":
@@ -420,9 +614,10 @@ if __name__ == "__main__":
     while game.terminate() is not True:
         if turn_of == 1:
             start = time.time_ns()
-            ai.go(game.board, )
+            r = ai.go(game.board, )
             end = time.time_ns()
             print("decision took: {} second(s) ".format((end - start) / 1e9))
+            print("Searched for {} iterations".format(r))
             turn_of = -turn_of
             action = ai.candidate_list[-1] if len(ai.candidate_list) != 0 else None
         else:
@@ -434,8 +629,8 @@ if __name__ == "__main__":
         end = time.time_ns()
         print("getActions took: ", (start - end) / 1e9)
         game = game.nextTurn(action)
-    #     plot(game.board)
-    #     plt.pause(1)
+        # plot(game.board)
+        # plt.pause(1)
     # plt.show()
 
     result = np.sum(game.board==ai.color)
