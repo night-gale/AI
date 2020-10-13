@@ -499,12 +499,12 @@ class BitBoard:
         for f1 in {BitBoard.Down, BitBoard.Up}:
             for f2 in {BitBoard.Right, BitBoard.Left}:
                 cap = f1(f2(mv)) & ene
-                cap |= f1(f2(mv)) & ene
-                cap |= f1(f2(mv)) & ene
-                cap |= f1(f2(mv)) & ene
-                cap |= f1(f2(mv)) & ene
-                cap |= f1(f2(mv)) & ene
-                if (f1(f2(mv)) & my) != 0:
+                cap |= f1(f2(cap)) & ene
+                cap |= f1(f2(cap)) & ene
+                cap |= f1(f2(cap)) & ene
+                cap |= f1(f2(cap)) & ene
+                cap |= f1(f2(cap)) & ene
+                if (f1(f2(cap)) & my) != 0:
                     my |= cap 
                     ene &= ~cap
         
