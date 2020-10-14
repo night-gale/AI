@@ -25,7 +25,7 @@ class OthelloNNet(nn.Module):
         self.fc2 = nn.Linear(128, 128)
         self.fc_bn2 = nn.BatchNorm1d(128)
 
-        self.fc3 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(128, 65)
 
         self.fc4 = nn.Linear(128, 1)
     

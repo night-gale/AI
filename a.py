@@ -240,20 +240,23 @@ class State:
     def getActions(self, ):
         self.actions = self.game.getActions()
 
-    def bestChild(self, ):
+    def bestChild(self, explore=True):
         best = [-1, float('-inf')]
         for ii, s in enumerate(self.children):
-            tmp = s.getUCB()
+            tmp = s.getUCB(explore)
             if tmp > best[1]:
                 best[0] = ii
                 best[1] = tmp
         
         return self.children[best[0]]
 
-    def getUCB(self, eps=1e-5, c=1/math.sqrt(3)):
-        if self.N == 0:
-            return float('inf')
-        return self.val / self.N + c * math.sqrt(2*math.log(self.root.N) / self.N)
+    def getUCB(self, eps=1e-5, c=1/math.sqrt(3), explore=True):
+        if explore == True:
+            if self.N == 0:
+                return float('inf')
+            return self.val / self.N + c * math.sqrt(2*math.log(self.root.N) / self.N)
+        else:
+            return self.val / self.N
     
     def isLeaf(self, ):
         return len(self.children) == 0
@@ -305,8 +308,8 @@ class MCTS:
             # 
             self.backprop(node, val)
 
-            action = self.base_state.bestChild().choice_to_state
-            if output is not None and ii % 5 == 0:
+            action = self.base_state.bestChild(False).choice_to_state
+            if output is not None and ii % 4 == 0:
                 if action is not None:
                     output.append(action)
             t2 = time.time_ns()
