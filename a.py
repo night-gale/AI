@@ -1,5 +1,3 @@
-from PIL.Image import BICUBIC
-from numpy.core.numeric import argwhere
 import numpy as np
 import random 
 import time
@@ -252,7 +250,7 @@ class State:
         
         return self.children[best[0]]
 
-    def getUCB(self, eps=1e-5, c=1/2):
+    def getUCB(self, eps=1e-5, c=1/math.sqrt(3)):
         if self.N == 0:
             return float('inf')
         return self.val / self.N + c * math.sqrt(2*math.log(self.root.N) / self.N)
@@ -399,10 +397,12 @@ class BitBoard:
 
     @staticmethod
     def Right(b):
+        # and operation for mask
         return (b & 0xfefefefe_fefefefe) >> 1
         
     @staticmethod
     def Left(b):
+        # and operation for mask
         return (b & 0x7f7f7f7f_7f7f7f7f) << 1
 
 
@@ -480,7 +480,7 @@ class BitBoard:
     @staticmethod 
     def nextTurn(black, white, player_color, mv):
         """
-        returns {black, white}
+        returns {black, white, player color}
         """
         my, ene = (black, white) if player_color == COLOR_BLACK else (white, black)
         cap = 0
@@ -561,19 +561,58 @@ class BitBoard:
                 if flag == True:
                     break
             flag = tmp
-            b = BitBoard.bitToBoard(black)
-            w = BitBoard.bitToBoard(white)
-            b = b * -1 + w * 1
-
 
         result = BitBoard.winner(black)
-        if player_color == COLOR_BLACK:
-            return result, black, white
-        else:
-            return not result, black, white
+        return result, black, white
             
+def testBitBoard():
+    __board = [
+        [ 0,  0,  0,  0,  0,  0,  0,  0, ],
+        [ 0,  0,  0,  0,  0,  0,  0,  0, ],
+        [ 0,  0,  0,  0,  0,  0,  0,  0, ],
+        [ 0,  0,  0, -1,  1,  0,  0,  0, ],
+        [ 0,  0,  0,  1, -1,  0,  0,  0, ],
+        [ 0,  0,  0,  0,  0,  0,  0,  0, ],
+        [ 0,  0,  0,  0,  0,  0,  0,  0, ],
+        [ 0,  0,  0,  0,  0,  0,  0,  0, ],
+    ]
+    __board = np.array(__board)
+    b = BitBoard.boardToBit(__board)
+    black = b[-1]
+    white = b[1]
+    flag = False
+    tpc = 1
+    b = __board
+    while BitBoard.terminate(black, white) is not True:
+        plt.subplot(221)
+        plot(b)
+        (black, white, tpc), tmp = BitBoard.randNextTurn(black, white, tpc )
+        if tmp == True:
+            if flag == True:
+                break
+        flag = tmp
+        b = BitBoard.bitToBoard(black) * (-1) + BitBoard.bitToBoard(white) * 1
+        plt.subplot(222)
+        plot(b)
+        plt.show()
 
-        
+# if __name__ == "__main__":
+    # import matplotlib.pyplot as plt 
+    # import matplotlib.patches as patch
+    # from matplotlib.collections import PathCollection
+
+    # def plot(board: np.ndarray):
+        # h, w = board.shape
+        # patches = []
+        # colors = []
+        # radius = 1. / h / 2
+        # for ii in range(board.shape[0]):
+            # for jj in range(board.shape[1]):
+                # color = (1, 0, 0) if board[ii][jj] == 1 else (0, 0, 1) if board[ii][jj] == -1 else (1, 1, 1)
+                # circle = plt.Circle((ii * radius * 2 + radius, jj * radius * 2 + radius), radius, color=color)
+                # plt.gca().add_artist(circle)
+
+    # testBitBoard()
 if __name__ == "__main__":
     import matplotlib.pyplot as plt 
     import matplotlib.patches as patch
