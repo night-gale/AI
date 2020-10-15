@@ -1,6 +1,8 @@
 import torch
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+from numpy.lib.stride_tricks import as_strided
 # deep model
 class OthelloNNet(nn.Module):
     def __init__(self, ):
@@ -61,3 +63,32 @@ class OthelloNNet(nn.Module):
     def load(self, path):
         checkpoint = torch.load(path, map_location=torch.device('cpu'))
         self.load_state_dict(checkpoint['state_dict'])
+
+class NeuralNet:
+    def __init__(self) -> None:
+        self.conv1 = None 
+        self.conv_bn1 = None
+        self.conv2 = None 
+        self.conv_bn2 = None
+        self.conv3 = None
+        self.conv_bn3 = None
+
+        self.fc1 = None 
+        self.fc_bn1 = None
+        self.fc2 = None
+        self.fc_bn2 = None
+        self.fc3 = None 
+        self.fc4 = None
+
+    def forward(self, x):
+        pass
+
+    @staticmethod
+    def conv2d(a, b):
+        Hout = a.shape[1] - b.shape[0] + 1
+        Wout = a.shape[2] - b.shape[1] + 1
+        a = as_strided(a, (a.shape[0], Hout, Wout, b.shape[0], b.shape[1], a.shape[3]), a.strides[:3] + a.strides[1:])
+        np.repeat(a, b.shape[3], axis=-1)
+        print("a's shape: {}".format(a.shape))
+        print("b's shape: {}".format(b.shape))
+        return np.tensordot(a, b, axes=3)
