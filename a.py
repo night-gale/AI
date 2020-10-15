@@ -46,6 +46,7 @@ class AI(object):
     # the last entry of candidate_list would be chosen as the decision
     # index range [0, 7], in total 64 position
     def go(self, chessboard):
+        self.candidate_list.clear()
         g = Game(chessboard, self.color)
         self.candidate_list = g.getActions()
         return self.algorithm(g, output=self.candidate_list)
@@ -295,7 +296,7 @@ class MCTS:
         self.base_state = None
         self.time_out = time_out
     
-    def __call__(self, game: Game, iters=3000, output=None):
+    def __call__(self, game: Game, iters=5000, output=None):
         self.base_state = State(game, )
         start_time = time.time_ns()
         max_t_per_iter = 0.0
@@ -309,7 +310,7 @@ class MCTS:
             self.backprop(node, val)
 
             action = self.base_state.bestChild(False).choice_to_state
-            if output is not None and ii % 4 == 0:
+            if output is not None and ii % 6 == 0:
                 if action is not None:
                     output.append(action)
             t2 = time.time_ns()
