@@ -242,6 +242,7 @@ class State:
         self.N = 0
         self.actions = None
         self.selected_actions = []
+        self.P = 1
 
     def getActions(self, ):
         self.actions = self.game.getActions()
@@ -256,11 +257,15 @@ class State:
         
         return self.children[best[0]]
 
-    def getUCB(self, eps=1e-5, c=1/math.sqrt(3), explore=True):
+    def getUCB(self, eps=1e-5, c=1/math.sqrt(3), explore=True, policy=False):
         if explore == True:
             if self.N == 0:
                 return float('inf')
-            return self.val / self.N + c * math.sqrt(2*math.log(self.parent.N) / self.N)
+            result = self.val / self.N + c * math.sqrt(2*math.log(self.parent.N) / self.N)
+            if policy:
+                return result * self.P
+            else:
+                return result
         else:
             return self.val / self.N
     
@@ -575,16 +580,42 @@ class BitBoard:
         return result, black, white
 
 class QLearningMCTS(MCTS):
-    def __init__(self, ):
-        super(QLearningMCTS, self).__init__()
+    def __init__(self, time_out):
+        super(QLearningMCTS, self).__init__(time_out)
         self.net = NeuralNet()
     
-    def __call__(self, ):
-        board = self.base_state.game.player_color * self.base_state.game.board
-        policy, val = self.net.forward(board.reshape((1, 8, 8, 1)))
-    
-    def select(self, ):
+        
+    def simulate(self, state : State):
+        policy, val = self.net(self.base_state.game.player_color \
+                               * self.base_state.game.board)
+        state.P = policy
+        state.getActions()
+        As = [x[0]*8 + x[1] for x in state.actins]
+        valids = np.zeros(64)
+        valids[As] = 1
+        state.P = state.P * valids
+        _sum = np.sum(state.P)
+        if _sum > 0:
+            state.P /= _sum
+        else:
+            print("Error, All probable moves masked")
+            self.P = self.P + valids
+            self.P /= np.sum(self.P)
+        
+        return val
+
+    def select(self):
         cur = self.base_state
+        while True:
+            if cur.isLeaf() is True:
+                self.expand(cur)
+                break
+            cur = cur.bestChild(policy=True)
+        
+        return cur
+        
+
+
     
 
     
