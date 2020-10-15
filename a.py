@@ -221,6 +221,10 @@ class Game:
 
 
 class State:
+    """
+    State class models (board, action) pair \n
+    where board is the board of the ${parent.game.board}, action is ${choice to state}
+    """
     def __init__(self, game, root=None, choice=None, parent=None) -> None:
         self.choice_to_state = choice
         self.parent = parent
@@ -255,7 +259,7 @@ class State:
         if explore == True:
             if self.N == 0:
                 return float('inf')
-            return self.val / self.N + c * math.sqrt(2*math.log(self.root.N) / self.N)
+            return self.val / self.N + c * math.sqrt(2*math.log(self.parent.N) / self.N)
         else:
             return self.val / self.N
     
@@ -376,15 +380,20 @@ class MCTS:
         return game.eval(self.base_state.game.player_color), game
         
 
-    def backprop(self, state, value):
+    def backprop(self, state : State, value):
         """
         update the sequence leads to the simulation result
         """
         # update N of parent nodes
         # update val of parent nodes
+
+        # value is the value for base node
         val, final_game = value
+        base_color = self.base_state.game.player_color
         while state is not None:
-            state.val += val
+            # value relative to parent state
+            # tells about whether the move to current state is value to parent Node or not
+            state.val += (-val if state.game.player_color == base_color else val)
             state.N += 1
             state = state.parent
 
