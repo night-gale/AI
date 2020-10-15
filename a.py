@@ -225,7 +225,7 @@ class State:
     State class models (board, action) pair \n
     where board is the board of the ${parent.game.board}, action is ${choice to state}
     """
-    def __init__(self, game, root=None, choice=None, parent=None) -> None:
+    def __init__(self, game, root=None, choice=None, parent=None, pplayer=None) -> None:
         self.choice_to_state = choice
         self.parent = parent
         self.root = root 
@@ -241,6 +241,7 @@ class State:
         self.N = 0
         self.actions = None
         self.selected_actions = []
+        self.pplayer = pplayer
 
     def getActions(self, ):
         self.actions = self.game.getActions()
@@ -268,7 +269,8 @@ class State:
     
     def nextState(self, action, base_state):
         new_game = self.game.nextTurn(action)
-        new_state = State(new_game, root=base_state, choice=action, parent=self)
+        new_state = State(new_game, root=base_state, choice=action, 
+                            parent=self, pplayer=self.game.player_color)
         self.children.append(new_state)
         self.selected_actions.append(action)
     
@@ -356,9 +358,9 @@ class MCTS:
     def bit_simulate(self, state):
         val, _, _ = BitBoard.simulate(state.game.board, state.game.player_color)
         if self.base_state.game.player_color == COLOR_BLACK:
-            return int(val), state.game
+            return val, state.game
         else:
-            return int(not val), state.game
+            return not val, state.game
         
 
     def simulate(self, state):
@@ -392,8 +394,8 @@ class MCTS:
         base_color = self.base_state.game.player_color
         while state is not None:
             # value relative to parent state
-            # tells about whether the move to current state is value to parent Node or not
-            state.val += (-val if state.game.player_color == base_color else val)
+            # tells about whether the move to current state is valuable to parent Node or not
+            state.val += (int(val) if state.pplayer == base_color else int(not val))
             state.N += 1
             state = state.parent
 
