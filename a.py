@@ -1,6 +1,5 @@
 from numpy.core import overrides
 from numpy.lib.stride_tricks import as_strided
-from deep_model import NeuralNet
 import numpy as np
 import random 
 import time
@@ -8,8 +7,6 @@ import math
 
 from numpy import core
 from numpy.testing._private.utils import tempdir
-
-from test import *
 
 COLOR_BLACK = -1
 COLOR_WHITE = 1 
@@ -35,7 +32,7 @@ EMPTY_GRID_FOUND = -1
 # )
 
 class AI(object):
-    def __init__(self, chessboard_size, color, time_out, mode='MCTS'):
+    def __init__(self, chessboard_size, color, time_out, mode='QMCTS'):
         self.chessboard_size = chessboard_size 
         self.color = color 
         self.time_out = time_out 
@@ -257,7 +254,7 @@ class State:
     def bestChild(self, explore=True, policy=False):
         best = [-1, float('-inf')]
         for ii, s in enumerate(self.children):
-            tmp = s.getUCB(explore, policy)
+            tmp = s.getUCB(explore=explore, policy=policy)
             if tmp > best[1]:
                 best[0] = ii
                 best[1] = tmp
@@ -265,7 +262,7 @@ class State:
             return None
         return self.children[best[0]]
 
-    def getUCB(self, eps=1e-5, c=1, explore=True, policy=False):
+    def getUCB(self, eps=1e-5, c=1/math.sqrt(2), explore=True, policy=False):
         if explore == True:
             if self.N == 0:
                 return float('inf')
@@ -273,10 +270,17 @@ class State:
             right = c * math.sqrt(2*math.log(self.parent.N) / self.N)
             if policy:
                 right = c * math.sqrt(self.parent.N) / self.N
-                return left + right * self.parent.P[self.choice_to_state[0]*8 + self.choice_to_state[1]]
+                pp = None
+                if self.choice_to_state is None:
+                    pp = self.P[64]
+                else:
+                    pp = self.P[self.choice_to_state[0] * 8 + self.choice_to_state[1]]
+                return left + right * pp
             else:
                 return left + right
         else:
+            if self.N == 0:
+                return float('inf')
             return self.val / self.N
     
     def isLeaf(self, ):
@@ -316,6 +320,7 @@ class MCTS:
     def __init__(self, time_out):
         self.base_state = None
         self.time_out = time_out
+        self.policy = False
     
     def __call__(self, game: Game, iters=5000, output=None):
         self.base_state = State(game, )
@@ -330,7 +335,7 @@ class MCTS:
             # 
             self.backprop(node, val)
 
-            child_state = self.base_state.bestChild(False)
+            child_state = self.base_state.bestChild(explore=False)
             if child_state is None:
                 continue
             action = child_state.choice_to_state
@@ -360,7 +365,7 @@ class MCTS:
                 break
 
             self.expand(cur)
-            cur = cur.bestChild()
+            cur = cur.bestChild(explore=True, policy=self.policy)
         
         return cur
 
@@ -414,7 +419,7 @@ class MCTS:
         while state is not None:
             # value relative to parent state
             # tells about whether the move to current state is valuable to parent Node or not
-            state.val += (int(val) if state.pplayer == base_color else int(not val))
+            state.val += (int(val) if state.pplayer == base_color else 1 - int(val))
             state.N += 1
             state = state.parent
 
@@ -603,7 +608,7 @@ class QLearningMCTS(MCTS):
     def __init__(self, time_out):
         super(QLearningMCTS, self).__init__(time_out)
         self.net = NeuralNet()
-    
+        self.policy = True
         
     
     def __call__(self, game:Game, iters=5000, output=None):
@@ -622,7 +627,7 @@ class QLearningMCTS(MCTS):
             # 
             self.backprop(node, val)
 
-            child_state = self.base_state.bestChild(False)
+            child_state = self.base_state.bestChild(explore=False)
             if child_state is None:
                 continue
             action = child_state.choice_to_state
@@ -656,7 +661,7 @@ class QLearningMCTS(MCTS):
             state.P = state.P + valids
             state.P /= np.sum(state.P)
         
-        return val, state
+        return -val, state
 
     
     def backprop(self, state, value):
@@ -720,21 +725,7 @@ class NeuralNet:
         p = fc(x, self.fc3['weight'], self.fc3['bias'])
         val = fc(x, self.fc4['weight'], self.fc4['bias'])
 
-        return softmax(p)[0], np.tanh(val)
-
-    def save_param(self, path):
-        np.set_printoptions(precision=4, threshold=1000000000)
-        with open(path, 'a') as f:
-            for module, name in zip((self.conv1, self.conv2, self.conv3, self.conv4, self.conv_bn1,
-                            self.conv_bn2, self.conv_bn3, self.conv_bn4, self.fc1, self.fc2,
-                            self.fc3, self.fc4, self.fc_bn1, self.fc_bn2), 
-                               ('conv1', 'conv2', 'conv3', 'conv4', 'conv_bn1', 'conv_bn2', 
-                                'conv_bn3', 'conv_bn4', 'fc1', 'fc2', 'fc3', 'fc4', 'fc_bn1', 'fc_bn2')):
-                for key in module:
-                    f.write(name + '_' + key + " = ")
-                    f.write(np.array2string(module[key], separator=', '))
-                    f.write('\n')
-        
+        return softmax(p)[0], np.tanh(val)[0]
     
 def toNumpy(state_dict):
     for key in state_dict:
@@ -819,6 +810,8 @@ def testBitBoard():
         plot(b)
         plt.show()
 
+
+
 # if __name__ == "__main__":
     # import matplotlib.pyplot as plt 
     # import matplotlib.patches as patch
@@ -866,8 +859,8 @@ if __name__ == "__main__":
 
 
     __board = np.array(__board)
-    ai = AI(__board.shape[0], 1, 1, mode='MCTS')
-    bi = AI(__board.shape[0], -1, 1, mode='QMCTS')
+    ai = AI(__board.shape[0], 1, 5, mode='MCTS')
+    bi = AI(__board.shape[0], -1, 5, mode='QMCTS')
     game = Game(__board, 1)
     turn_of = 1
     action = None
@@ -906,3 +899,5 @@ if __name__ == "__main__":
         print("Draw")
     else:
         print("BI wins")
+
+
