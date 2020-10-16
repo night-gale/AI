@@ -45,6 +45,8 @@ class AI(object):
             self.algorithm = MCTS(time_out)
         elif mode == 'random':
             self.algorithm = RD()
+        elif mode == 'QMCTS':
+            self.algorithm = QLearningMCTS(time_out)
 
 
     # candidate_list example [(3, 3), (4, 4)]
@@ -247,25 +249,28 @@ class State:
     def getActions(self, ):
         self.actions = self.game.getActions()
 
-    def bestChild(self, explore=True):
+    def bestChild(self, explore=True, policy=False):
         best = [-1, float('-inf')]
         for ii, s in enumerate(self.children):
-            tmp = s.getUCB(explore)
+            tmp = s.getUCB(explore, policy)
             if tmp > best[1]:
                 best[0] = ii
                 best[1] = tmp
-        
+        if best[0] == -1:
+            return None
         return self.children[best[0]]
 
-    def getUCB(self, eps=1e-5, c=1/math.sqrt(3), explore=True, policy=False):
+    def getUCB(self, eps=1e-5, c=1, explore=True, policy=False):
         if explore == True:
             if self.N == 0:
                 return float('inf')
-            result = self.val / self.N + c * math.sqrt(2*math.log(self.parent.N) / self.N)
+            left = self.val / self.N 
+            right = c * math.sqrt(2*math.log(self.parent.N) / self.N)
             if policy:
-                return result * self.P
+                right = c * math.sqrt(self.parent.N) / self.N
+                return left + right * self.parent.P[self.choice_to_state[0]*8 + self.choice_to_state[1]]
             else:
-                return result
+                return left + right
         else:
             return self.val / self.N
     
@@ -319,7 +324,10 @@ class MCTS:
             # 
             self.backprop(node, val)
 
-            action = self.base_state.bestChild(False).choice_to_state
+            child_state = self.base_state.bestChild(False)
+            if child_state is None:
+                continue
+            action = child_state.choice_to_state
             if output is not None and ii % 6 == 0:
                 if action is not None:
                     output.append(action)
@@ -342,6 +350,7 @@ class MCTS:
             if cur == self.base_state:
                 pass
             elif cur.isLeaf() is True:
+                self.expand(cur)
                 break
 
             self.expand(cur)
@@ -585,13 +594,47 @@ class QLearningMCTS(MCTS):
         self.net = NeuralNet()
     
         
-    def simulate(self, state : State):
-        policy, val = self.net(self.base_state.game.player_color \
-                               * self.base_state.game.board)
+    
+    def __call__(self, game:Game, iters=5000, output=None):
+        self.base_state = State(game, )
+        start_time = time.time_ns()
+        max_t_per_iter = 0.0
+        val = self.bit_simulate(self.base_state)
+        self.backprop(self.base_state, val)
+
+        for ii in range(iters):
+            t1 = time.time_ns()
+            # select the optimal leaf node
+            node = self.select()
+            # rollout to end of the game
+            val = self.bit_simulate(node)
+            # 
+            self.backprop(node, val)
+
+            child_state = self.base_state.bestChild(False)
+            if child_state is None:
+                continue
+            action = child_state.choice_to_state
+            if output is not None and ii % 6 == 0:
+                if action is not None:
+                    output.append(action)
+            t2 = time.time_ns()
+            max_t_per_iter = max(0, t2 - t1)
+            if (self.time_out - (time.time_ns() - start_time) / 1e9) < 2 * (max_t_per_iter / 1e9):
+                if action is not None:
+                    output.append(action)
+                return ii
+        return ii
+
+    def bit_simulate(self, state : State):
+        policy, val = self.net.forward(state.game.player_color \
+                               * state.game.board.reshape((1, 8, 8, 1)))
         state.P = policy
         state.getActions()
-        As = [x[0]*8 + x[1] for x in state.actins]
-        valids = np.zeros(64)
+        As = [x[0]*8 + x[1] for x in state.actions]
+        if len(As) == 0:
+            As.append(64)
+        valids = np.zeros(65)
         valids[As] = 1
         state.P = state.P * valids
         _sum = np.sum(state.P)
@@ -599,26 +642,23 @@ class QLearningMCTS(MCTS):
             state.P /= _sum
         else:
             print("Error, All probable moves masked")
-            self.P = self.P + valids
-            self.P /= np.sum(self.P)
+            state.P = state.P + valids
+            state.P /= np.sum(state.P)
         
-        return val
-
-    def select(self):
-        cur = self.base_state
-        while True:
-            if cur.isLeaf() is True:
-                self.expand(cur)
-                break
-            cur = cur.bestChild(policy=True)
-        
-        return cur
-        
-
+        return val, state
 
     
+    def backprop(self, state, value):
+        val, state = value
 
-    
+        while state is not None:
+            state.val += val
+            state.N += 1
+
+            val = -val
+            state = state.parent
+        
+
 
 class NeuralNet:
     def __init__(self) -> None:
@@ -815,8 +855,8 @@ if __name__ == "__main__":
 
 
     __board = np.array(__board)
-    ai = AI(__board.shape[0], 1, 5, mode='MCTS')
-    bi = AI(__board.shape[0], -1, 5, mode='random')
+    ai = AI(__board.shape[0], 1, 1, mode='MCTS')
+    bi = AI(__board.shape[0], -1, 1, mode='QMCTS')
     game = Game(__board, 1)
     turn_of = 1
     action = None
@@ -827,12 +867,16 @@ if __name__ == "__main__":
             start = time.time_ns()
             r = ai.go(game.board, )
             end = time.time_ns()
-            print("decision took: {} second(s) ".format((end - start) / 1e9))
+            print("AI decision took: {} second(s) ".format((end - start) / 1e9))
             print("Searched for {} iterations".format(r))
             turn_of = -turn_of
             action = ai.candidate_list[-1] if len(ai.candidate_list) != 0 else None
         else:
-            bi.go(game.board, )
+            start = time.time_ns()
+            r = bi.go(game.board, )
+            end = time.time_ns()
+            print("BI decision took: {} second(s) ".format((end - start) / 1e9))
+            print("Searched for {} iterations".format(r))
             turn_of = -turn_of
             action = bi.candidate_list[-1] if len(bi.candidate_list) != 0 else None
         start = time.time_ns()
@@ -840,9 +884,9 @@ if __name__ == "__main__":
         end = time.time_ns()
         print("getActions took: ", (start - end) / 1e9)
         game = game.nextTurn(action)
-        # plot(game.board)
-        # plt.pause(1)
-    # plt.show()
+        plot(game.board)
+        plt.pause(1)
+    plt.show()
 
     result = np.sum(game.board==ai.color)
     if result > 32:
@@ -850,4 +894,4 @@ if __name__ == "__main__":
     elif result == 32:
         print("Draw")
     else:
-        print("AI Loses")
+        print("BI wins")
