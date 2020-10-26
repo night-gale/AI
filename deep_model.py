@@ -7,26 +7,27 @@ from torch.nn.functional import threshold
 from test import *
 # deep model
 class OthelloNNet(nn.Module):
-    def __init__(self, ):
+    def __init__(self, nchannels=128):
         # game params
         # hard coded
         self.board_x, self.board_y = (8, 8)
+        self.nchannels = nchannels
 
         super(OthelloNNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 128, 3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(128, 128,  3, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(128, 128, 3, stride=1)
-        self.conv4 = nn.Conv2d(128, 128, 3, stride=1)
+        self.conv1 = nn.Conv2d(1, nchannels, 3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(nchannels, nchannels,  3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(nchannels, nchannels, 3, stride=1)
+        self.conv4 = nn.Conv2d(nchannels, nchannels, 3, stride=1)
 
-        self.bn1 = nn.BatchNorm2d(128)
-        self.bn2 = nn.BatchNorm2d(128)
-        self.bn3 = nn.BatchNorm2d(128)
-        self.bn4 = nn.BatchNorm2d(128)
+        self.bn1 = nn.BatchNorm2d(nchannels)
+        self.bn2 = nn.BatchNorm2d(nchannels)
+        self.bn3 = nn.BatchNorm2d(nchannels)
+        self.bn4 = nn.BatchNorm2d(nchannels)
 
-        self.fc1 = nn.Linear(128 * (self.board_x - 4) * (self.board_y - 4), 128)
-        self.fc_bn1 = nn.BatchNorm1d(128)
+        self.fc1 = nn.Linear(nchannels * (self.board_x - 4) * (self.board_y - 4), 256)
+        self.fc_bn1 = nn.BatchNorm1d(256)
         
-        self.fc2 = nn.Linear(128, 128)
+        self.fc2 = nn.Linear(256, 128)
         self.fc_bn2 = nn.BatchNorm1d(128)
 
         self.fc3 = nn.Linear(128, 65)
@@ -41,7 +42,7 @@ class OthelloNNet(nn.Module):
         x = F.relu(self.bn3(self.conv3(x)))
         x = F.relu(self.bn4(self.conv4(x)))
 
-        x = x.view(-1, 128 * 4 * 4)
+        x = x.view(-1, self.nchannels * 4 * 4)
 
         x = F.relu(self.fc_bn1(self.fc1(x)))
         x = F.relu(self.fc_bn2(self.fc2(x)))
@@ -142,7 +143,7 @@ class NeuralNet:
     
     def save_param(self, path):
         np.set_printoptions(precision=4, threshold=1000000000)
-        with open(path, 'a') as f:
+        with open(path, 'w') as f:
             for module, name in zip((self.conv1, self.conv2, self.conv3, self.conv4, self.conv_bn1,
                             self.conv_bn2, self.conv_bn3, self.conv_bn4, self.fc1, self.fc2,
                             self.fc3, self.fc4, self.fc_bn1, self.fc_bn2), 
@@ -180,7 +181,6 @@ def conv2d(x, w, b, padding=False):
     Hout = x.shape[1] - K + 1
     Wout = x.shape[2] - K + 1
     x = as_strided(x, (x.shape[0], Hout, Wout, w.shape[0], w.shape[1], x.shape[3]), x.strides[:3] + x.strides[1:])
-    # np.repeat(x, w.shape[3], axis=-1)
     return np.tensordot(x, w, axes=3) + b
     
 def fc(x, w, b):
@@ -207,22 +207,22 @@ def softmax(x):
     return e_x / e_x.sum()
 
 
-# if __name__ == '__main__':
-#     torch_model = OthelloNNet()
-#     numpy_model = NeuralNet()
-# 
-#     checkpoint = torch.load("./checkpoint_56.pth.tar", map_location=torch.device('cpu'))
-#     torch_model.load_state_dict(checkpoint['state_dict'])
-
-#     numpy_model.load_param(torch_model)
-
-#     numpy_model.save_param('./test.txt')
-
-
 if __name__ == '__main__':
-    model = NeuralNet()
-    torch_model = OthelloNNet()
-    check = torch.load('checkpoint_56.pth.tar', map_location=torch.device('cpu'))
-    print(model.fc4['weight'])
-    print(torch_model.fc4.state_dict()['weight'])
-    print(model.forward(np.ones((1, 8, 8, 1))))
+    torch_model = OthelloNNet(80)
+    numpy_model = NeuralNet()
+
+    checkpoint = torch.load("./80_yunhao_7.pth.tar", map_location=torch.device('cpu'))
+    torch_model.load_state_dict(checkpoint['state_dict'])
+
+    numpy_model.load_param(torch_model)
+
+    numpy_model.save_param('./test.txt')
+
+
+# if __name__ == '__main__':
+#     model = NeuralNet()
+#     torch_model = OthelloNNet()
+#     check = torch.load('checkpoint_56.pth.tar', map_location=torch.device('cpu'))
+#     print(model.fc4['weight'])
+#     print(torch_model.fc4.state_dict()['weight'])
+#     print(model.forward(np.ones((1, 8, 8, 1))))
